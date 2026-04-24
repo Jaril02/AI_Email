@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import time
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from torch import mode
+from typing import List
+from app.ai_client import API_KEY, enhance_email
+from app.chatbot_engine import handle_chat
+import hashlib
 
-from app.ai_client import AIClient
+from test import check_bounces
+import os
+# from app.ai_client import AIClient
 from app.email_service import load_smtp_settings, send_email_smtp
 from app.excel_utils import (
     detect_email_column,
@@ -18,14 +25,14 @@ from app.schemas import EnhanceRequest, GenerateRequest, PreviewRequest, SendReq
 
 app = FastAPI(title="AI Email Automation Agent")
 
-ai_client = AIClient()
+# ai_client = AIClient()
 
 # In-memory session data for demo/simple local usage.
 state: dict[str, object] = {
     "rows": [],
     "first_name_column": None,
     "email_column": None,
-    "attachment_names": [],
+    "attachments": [],
     "send_stats": {
         "total_attempts": 0,
         "delivered": 0,
@@ -42,7 +49,7 @@ async def root() -> dict[str, object]:
     return {
         "service": "AI Email Automation Agent",
         "docs": "/docs",
-        "ai_enabled": ai_client.enabled,
+        # "ai_enabled": ai_client.enabled,
         "frontend": "streamlit run streamlit_app.py",
     }
 
@@ -72,32 +79,59 @@ async def upload_excel(file: UploadFile = File(...)) -> dict[str, object]:
 
 
 @app.post("/api/upload-attachments")
-async def upload_attachments(files: list[UploadFile] = File(...)) -> dict[str, object]:
-    names = [f.filename for f in files]
-    state["attachment_names"] = names
-    return {"success": True, "attachments": names}
+# async def upload_attachments(files: list[UploadFile] = File(...)) -> dict[str, object]:
+#     names = [f.filename for f in files]
+#     state["attachment_names"] = names
+#     return {"success": True, "attachments": names}
 
+async def upload_attachments(files: List[UploadFile] = File(...)):
+    attachments = []
+
+    for f in files:
+        content = await f.read()
+        attachments.append({
+            "filename": f.filename,
+            "content": content
+        })
+    state["attachments"] = attachments
+    return {"attachments": [a["filename"] for a in attachments]}
+
+
+# @app.post("/api/generate-message")
+# async def generate_message(payload: GenerateRequest) -> dict[str, object]:
+#     prompt = (
+#         "Write an outreach email template with a friendly professional tone. "
+#         "Use {first_name} for personalization, keep it under 150 words.\n\n"
+#         f"Objective:\n{payload.objective}"
+#     )
+#     content = await ai_client.generate(prompt)
+#     return {"success": True, "message": content}
 
 @app.post("/api/generate-message")
-async def generate_message(payload: GenerateRequest) -> dict[str, object]:
-    prompt = (
-        "Write an outreach email template with a friendly professional tone. "
-        "Use {first_name} for personalization, keep it under 150 words.\n\n"
-        f"Objective:\n{payload.objective}"
-    )
-    content = await ai_client.generate(prompt)
-    return {"success": True, "message": content}
+def generate_message(data: dict):
+    objective = data.get("objective", "")
 
+    msg = f"Hi {{first_name}},\n\n{objective}\n\nRegards,\nTeam"
+
+    return {"message": msg}
+
+
+# @app.post("/api/enhance-message")
+# async def enhance_message(payload: EnhanceRequest) -> dict[str, object]:
+#     prompt = (
+#         "Improve this email message for clarity and engagement while keeping the same intent. "
+#         "Preserve placeholders like {first_name} and any {column_name} tags.\n\n"
+#         f"Current message:\n{payload.message}"
+#     )
+#     content = await ai_client.generate(prompt)
+#     return {"success": True, "message": content}
 
 @app.post("/api/enhance-message")
-async def enhance_message(payload: EnhanceRequest) -> dict[str, object]:
-    prompt = (
-        "Improve this email message for clarity and engagement while keeping the same intent. "
-        "Preserve placeholders like {first_name} and any {column_name} tags.\n\n"
-        f"Current message:\n{payload.message}"
-    )
-    content = await ai_client.generate(prompt)
-    return {"success": True, "message": content}
+def enhance_message(data: dict):
+    text = data.get("message", "")
+    
+    return {"message": enhance_email(text)}
+    
 
 
 @app.post("/api/preview")
@@ -123,35 +157,30 @@ def _record_send_result(stats: dict[str, int], status: str) -> None:
     stats["total_attempts"] += 1
     if status == "delivered":
         stats["delivered"] += 1
-    elif status == "failed":
+    elif status == "bounced" or status == "failed":
         stats["failed"] += 1
     else:
         stats["skipped"] += 1
 
 
-@app.get("/api/send-status")
-async def send_status() -> dict[str, object]:
-    """Cumulative send counts and last batch detail for the status bar."""
-    stats = state.get("send_stats", {})
-    smtp = load_smtp_settings()
+
+
+@app.get("/api/bounces")
+def get_bounces():
+    imap_host = os.getenv("IMAP_HOST")
+    user = os.getenv("SMTP_USER")
+    password = os.getenv("SMTP_PASSWORD")
+
+    if not imap_host or not user or not password:
+        return {"error": "IMAP config missing"}
+
+    results = check_bounces(imap_host, user, password)
+
     return {
         "success": True,
-        "cumulative": {
-            "sent": stats.get("total_attempts", 0),
-            "delivered": stats.get("delivered", 0),
-            "failed": stats.get("failed", 0),
-            "skipped": stats.get("skipped", 0),
-        },
-        "last_batch": state.get("last_batch"),
-        "smtp_configured": smtp is not None,
-        "delivery_note": (
-            "SMTP success means your server accepted the message for delivery. "
-            "Inbox placement and opens are not tracked unless you add webhooks (e.g. SES, SendGrid)."
-            if smtp
-            else "Demo mode: counts mark simulated handoff. Set SMTP_* env vars for real sending."
-        ),
+        "count": len(results),
+        "bounces": results
     }
-
 
 @app.post("/api/send")
 async def send_messages(payload: SendRequest) -> dict[str, object]:
@@ -168,6 +197,8 @@ async def send_messages(payload: SendRequest) -> dict[str, object]:
     print("MODE:", mode)          # 👈 ADD THIS
 
     results: list[dict[str, Any]] = []
+    attachments = state.get("attachments", [])
+    print("ATTACHMENTS:", attachments)  # debug
 
     for row in rows:
         if not email_column:
@@ -191,7 +222,7 @@ async def send_messages(payload: SendRequest) -> dict[str, object]:
 
         if smtp:
             try:
-                send_email_smtp(to_addr, payload.subject, body, smtp)
+                send_email_smtp(to_addr, payload.subject, body, smtp,attachments)
                 results.append(
                     {
                         "email": to_addr,
@@ -218,24 +249,43 @@ async def send_messages(payload: SendRequest) -> dict[str, object]:
                 }
             )
             _record_send_result(stats, "delivered")
+    time.sleep(10)
+
+    bounces = check_bounces()
+
+    bounced_emails = {b["email"] for b in bounces if b.get("email")}
+    for r in results:
+        if r["email"] in bounced_emails:
+            r["status"] = "bounced"
+            r["detail"] = "Email bounced (invalid or rejected)"
+    bounce_count = len(bounced_emails)
+    delivered_count = sum(1 for r in results if r["status"] == "delivered")
+    failed_count = sum(1 for r in results if r["status"] == "failed")
+    bounced_count = sum(1 for r in results if r["status"] == "bounced")
+    skipped_count = sum(1 for r in results if r["status"] == "skipped")
 
     state["last_batch"] = {
         "at": datetime.now(timezone.utc).isoformat(),
         "subject": payload.subject,
         "mode": mode,
-        "total": len(results),
-        "delivered": sum(1 for r in results if r["status"] == "delivered"),
-        "failed": sum(1 for r in results if r["status"] == "failed"),
-        "skipped": sum(1 for r in results if r["status"] == "skipped"),
-        "results": results,
+        "total": len(results), 
+        "delivered": delivered_count,
+        "failed": failed_count,
+        "skipped": skipped_count,
+        "bounced": bounced_count,
+        "bounced_emails": list(bounced_emails),
+        "results": results, 
     }
+    
 
     last = state["last_batch"]
 
     return {
         "success": True,
         "message": (
-            f"Sent via SMTP ({last['delivered']} accepted, {last['failed']} failed, {last['skipped']} skipped)."
+            f"Sent via SMTP "
+            f"({last['delivered']} delivered, {last['failed']} failed, "
+            f"{last['bounced']} bounced, {last['skipped']} skipped)."
             if smtp
             else f"Demo send complete ({last['delivered']} simulated delivered, {last['skipped']} skipped)."
         ),
@@ -244,5 +294,31 @@ async def send_messages(payload: SendRequest) -> dict[str, object]:
         "attachments": state.get("attachment_names", []),
         "mode": mode,
         "last_batch": last,
-        "cumulative": dict(state["send_stats"]),
+        # "cumulative": dict(state["send_stats"]),
     }
+
+
+@app.get("/api/send-status")
+async def send_status() -> dict[str, object]:
+    """Cumulative send counts and last batch detail for the status bar."""
+    stats = state.get("send_stats", {})
+    smtp = load_smtp_settings()
+    return {
+        "success": True,
+        "last_batch": state.get("last_batch"),
+        "smtp_configured": smtp is not None,
+        "delivery_note": (
+            "SMTP success means your server accepted the message for delivery. "
+            "Inbox placement and opens are not tracked unless you add webhooks (e.g. SES, SendGrid)."
+            if smtp
+            else "Demo mode: counts mark simulated handoff. Set SMTP_* env vars for real sending."
+        ),
+    }
+
+# @app.get("/chat")
+# def chat(query: str):
+
+#     session_id = "user1" 
+#     response = handle_chat(query, session_id, state)
+
+#     return response

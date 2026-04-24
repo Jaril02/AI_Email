@@ -13,6 +13,20 @@ if "message" not in st.session_state:
 if "preview" not in st.session_state:
     st.session_state.preview = []
 
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []  
+
+
+def chat_api(message: str):
+    try:
+        response = requests.get(
+            f"{api_base_url()}/chat",
+            params={"query": message},
+            timeout=60
+        )
+        return response.json()
+    except Exception:
+        return {"message": "Error connecting to chatbot"}
 
 def api_base_url() -> str:
     return st.session_state.get("api_base_url", "http://127.0.0.1:8000")
@@ -20,7 +34,7 @@ def api_base_url() -> str:
 
 def get_json(endpoint: str) -> dict[str, Any] | None:
     try:
-        response = requests.get(f"{api_base_url()}{endpoint}", timeout=10)
+        response = requests.get(f"{api_base_url()}{endpoint}", timeout=60)
         if response.status_code >= 400:
             return None
         return response.json()
@@ -41,20 +55,22 @@ with st.sidebar:
     st.session_state.api_base_url = st.text_input("FastAPI URL", value=api_base_url())
     st.caption("Run backend first: uvicorn app.main:app --reload")
 
-
 send_status = get_json("/api/send-status")
 if send_status and send_status.get("success"):
-    cum = send_status.get("cumulative", {})
+    # cum = send_status.get("cumulative", {})
+    last = send_status.get("last_batch") or {}
     st.subheader("Send status")
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
     with m1:
-        st.metric("Sent (attempts)", cum.get("sent", 0))
+        st.metric("Total", last.get("total", 0))
     with m2:
-        st.metric("Delivered", cum.get("delivered", 0))
+        st.metric("Delivered", last.get("delivered", 0))
     with m3:
-        st.metric("Failed", cum.get("failed", 0))
+        st.metric("Failed", last.get("failed", 0))
     with m4:
-        st.metric("Skipped", cum.get("skipped", 0))
+        st.metric("Skipped", last.get("skipped", 0))
+    with m5:
+        st.metric("Bounced", last.get("bounced", 0))
 
     last = send_status.get("last_batch")
     if last and last.get("total", 0) > 0:
@@ -236,3 +252,55 @@ else:
         st.code(item.get("message", ""), language="text")
         with st.expander("Recipient Row Data"):
             st.code(json.dumps(recipient, indent=2), language="json")
+
+
+#AI Chat 
+# st.divider()
+# st.subheader("🤖 AI Assistant (Chatbot)")
+
+# chat_container = st.container()
+
+# with chat_container:
+#     for msg in st.session_state.chat_history:
+#         if msg["role"] == "user":
+#             st.markdown(f"**You:** {msg['content']}")
+#         else:
+#             st.markdown(f"**Bot:** {msg['content']}")
+
+# col1, col2 = st.columns([4, 1])
+
+# with col1:
+#     user_input = st.text_input("Type your message...", key="chat_input")
+
+# with col2:
+#     send_btn = st.button("Send", use_container_width=True)
+
+# if send_btn and user_input.strip():
+#     try:
+#         # Save user message
+#         st.session_state.chat_history.append({
+#             "role": "user",
+#             "content": user_input
+#         })
+
+#         # Call chatbot API
+#         response = requests.get(
+#             f"{api_base_url()}/chat",
+#             params={"query": user_input},
+#             timeout=60
+#         )
+
+#         data = response.json()
+
+#         bot_reply = data.get("message", "No response")
+
+#         # Save bot reply
+#         st.session_state.chat_history.append({
+#             "role": "bot",
+#             "content": bot_reply
+#         })
+
+#         st.rerun()
+
+#     except Exception as e:
+#         st.error(f"Chat error: {e}")

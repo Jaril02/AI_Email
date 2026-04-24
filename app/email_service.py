@@ -1,21 +1,21 @@
-from __future__ import annotations
-
-import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import NamedTuple
+from email.mime.base import MIMEBase
+from email import encoders
 from dotenv import load_dotenv
+import os
+from typing import NamedTuple 
 
-load_dotenv()
-class SMTPSettings(NamedTuple):
-    host: str
-    port: int
-    user: str | None
-    password: str | None
-    from_addr: str
+
+load_dotenv() 
+class SMTPSettings(NamedTuple): 
+    host: str 
+    port: int 
+    user: str | None 
+    password: str | None 
+    from_addr: str 
     use_tls: bool
-
 
 def load_smtp_settings() -> SMTPSettings | None:
     host = os.getenv("SMTP_HOST", "").strip()
@@ -38,20 +38,39 @@ def load_smtp_settings() -> SMTPSettings | None:
         use_tls=use_tls,
     )
 
-
 def send_email_smtp(
     to_addr: str,
     subject: str,
     body: str,
     settings: SMTPSettings,
+    attachments=None
 ) -> None:
     print("🔌 Connecting to SMTP server...")
     print(f"📤 Preparing to send email to: {to_addr}")
+
     msg = MIMEMultipart()
     msg["Subject"] = subject
     msg["From"] = settings.from_addr
     msg["To"] = to_addr
+
+    # ✅ Email body
     msg.attach(MIMEText(body, "plain", "utf-8"))
+
+    # ✅ Attach files correctly
+    if attachments:
+        print(f"📎 Attaching {len(attachments)} files...")
+        for file in attachments:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(file["content"])
+
+            encoders.encode_base64(part)
+
+            part.add_header(
+                "Content-Disposition",
+                f'attachment; filename="{file["filename"]}"'
+            )
+
+            msg.attach(part)
 
     try:
         with smtplib.SMTP(settings.host, settings.port, timeout=30) as server:
@@ -68,7 +87,7 @@ def send_email_smtp(
             print("📨 Sending email...")
             server.sendmail(settings.from_addr, [to_addr], msg.as_string())
 
-            print("🎉 Email sent successfully (accepted by SMTP server)")
+            print("🎉 Email sent successfully (with attachments)")
 
     except Exception as e:
         print("❌ ERROR while sending email:", str(e))
