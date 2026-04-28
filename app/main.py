@@ -8,9 +8,9 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from torch import mode
 from typing import List
 from app.ai_client import API_KEY, enhance_email
-# from app.chatbots_engine import handle_chat
+# from app.chatbot_engine import handle_chat
 import hashlib
-
+from app.manual import ManualEmailSender
 from test import check_bounces
 import os
 # from app.ai_client import AIClient
@@ -32,6 +32,7 @@ state: dict[str, object] = {
     "rows": [],
     "first_name_column": None,
     "email_column": None,
+    "stop_requested":False,
     "attachments": [],
     "send_stats": {
         "total_attempts": 0,
@@ -201,6 +202,9 @@ async def send_messages(payload: SendRequest) -> dict[str, object]:
     print("ATTACHMENTS:", attachments)  # debug
 
     for row in rows:
+        if state.get("stop_requested"):
+            print("🛑 STOP TRIGGERED")
+            break
         if not email_column:
             results.append(
                 {
@@ -297,6 +301,17 @@ async def send_messages(payload: SendRequest) -> dict[str, object]:
         # "cumulative": dict(state["send_stats"]),
     }
 
+#emergency stoper
+@app.post("/api/stop")
+def emergency_stop():
+    state["stop_requested"] = True
+    return {"message": "🛑 Emergency stop activated"}
+
+
+@app.post("/api/stop/reset")
+def reset_stop():
+    state["stop_requested"] = False
+    return {"message": "✅ Stop reset"}
 
 @app.get("/api/send-status")
 async def send_status() -> dict[str, object]:
@@ -315,10 +330,73 @@ async def send_status() -> dict[str, object]:
         ),
     }
 
-# @app.get("/chat")
-# def chat(query: str):
 
-#     session_id = "user1" 
-#     response = handle_chat(query, session_id, state)
+def init_manual_sender(subject: str, message_template: str):
+    rows = state.get("rows", [])
+    first_name_column = state.get("first_name_column")
+    email_column = state.get("email_column")
+    attachments = state.get("attachments", [])
+    smtp = load_smtp_settings()
 
-#     return response
+    emails = []
+
+    for row in rows:
+        if not email_column:
+            continue
+
+        to_addr = str(row.get(email_column, "")).strip()
+        if not to_addr:
+            continue
+
+        body = personalize_message(message_template, row, first_name_column)
+
+        emails.append({
+            "to": to_addr,
+            "subject": subject,
+            "body": body,
+            "attachments": attachments,
+        })
+
+    state["manual_sender"] = ManualEmailSender(emails, smtp, state)
+
+
+@app.post("/api/manual/preview")
+def manual_preview():
+    sender = state.get("manual_sender")
+
+    if not sender:
+        raise HTTPException(status_code=400, detail="Manual mode not initialized")
+
+    email = sender.preview_next()
+
+    if not email:
+        return {"message": "No emails left"}
+
+    return email
+
+@app.post("/api/manual/send")
+def manual_send(payload: SendRequest):
+    if not state.get("manual_sender"):
+        init_manual_sender(payload.subject, payload.message_template)
+
+    sender = state["manual_sender"]
+    return sender.send_next()
+
+
+@app.post("/api/manual/skip")
+def manual_skip():
+    sender = state.get("manual_sender")
+
+    if not sender:
+        raise HTTPException(status_code=400, detail="Manual mode not initialized")
+
+    return sender.skip_next()
+
+@app.get("/api/manual/status")
+def manual_status():
+    sender = state.get("manual_sender")
+
+    if not sender:
+        return {"message": "Manual sender not started"}
+
+    return sender.status()
