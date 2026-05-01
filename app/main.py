@@ -193,7 +193,7 @@ async def send_messages(payload: SendRequest) -> dict[str, object]:
     stats: dict[str, int] = state["send_stats"]  # type: ignore[assignment]
     smtp = load_smtp_settings()
     # print("SMTP CONFIG:", smtp)   # 👈 ADD THIS
-    # mode = "smtp" if smtp else "demo"
+    mode = "smtp" if smtp else "demo"
     # print("MODE:", mode)          # 👈 ADD THIS
 
     results: list[dict[str, Any]] = []
