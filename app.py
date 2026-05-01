@@ -29,12 +29,12 @@ def chat_api(message: str):
         return {"message": "Error connecting to chatbot"}
 
 def api_base_url() -> str:
-    return "https://aiemail-production-b59e.up.railway.app/"
+    return "https://ai-email-9e5x.onrender.com"
 
 
 def get_json(endpoint: str) -> dict[str, Any] | None:
     try:
-        response = requests.get(f"{api_base_url()}{endpoint}", timeout=60)
+        response = requests.get(f"{api_base_url()}{endpoint}", timeout=120)
         if response.status_code >= 400:
             return None
         return response.json()
