@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from torch import mode
+# from torch import mode
 from typing import List
 from app.ai_client import API_KEY, enhance_email
 from app.chatbot_engine import handle_chat
