@@ -22,7 +22,7 @@ def chat_api(message: str):
         response = requests.get(
             f"{api_base_url()}/chat",
             params={"query": message},
-            timeout=60
+            timeout=120
         )
         return response.json()
     except Exception:
