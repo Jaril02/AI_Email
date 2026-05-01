@@ -1,8 +1,13 @@
 fastapi
 uvicorn[standard]
-jinja2
-python-multipart
+pydantic
+python-dotenv
 pandas
 openpyxl
+jinja2
+python-multipart
+requests
 httpx
 streamlit
+torch
+imap-tools
