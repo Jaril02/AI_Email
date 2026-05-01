@@ -43,7 +43,7 @@ def get_json(endpoint: str) -> dict[str, Any] | None:
 
 
 def post_json(endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
-    response = requests.post(f"{api_base_url()}{endpoint}", json=payload, timeout=60)
+    response = requests.post(f"{api_base_url()}{endpoint}", json=payload, timeout=120)
     data = response.json()
     if response.status_code >= 400:
         raise RuntimeError(data.get("detail", "Request failed"))
@@ -117,7 +117,7 @@ with left_col:
                 response = requests.post(
                     f"{api_base_url()}/api/upload-excel",
                     files=files,
-                    timeout=60,
+                    timeout=120,
                 )
                 data = response.json()
                 if response.status_code >= 400:
@@ -150,7 +150,7 @@ with left_col:
                 response = requests.post(
                     f"{api_base_url()}/api/upload-attachments",
                     files=files,
-                    timeout=60,
+                    timeout=120,
                 )
                 data = response.json()
                 if response.status_code >= 400:
