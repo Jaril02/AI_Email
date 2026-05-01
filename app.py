@@ -29,7 +29,7 @@ def chat_api(message: str):
         return {"message": "Error connecting to chatbot"}
 
 def api_base_url() -> str:
-    return "https://aiemail-production-b59e.up.railway.app/"
+    return "https://ai-email-9e5x.onrender.com"
 
 
 def get_json(endpoint: str) -> dict[str, Any] | None:
