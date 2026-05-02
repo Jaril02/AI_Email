@@ -1,0 +1,46 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+*.manifest
+*.spec
+
+# Environment / virtualenv
+env/
+venv/
+ENV/
+.venv/
+
+# Jupyter / notebooks
+.ipynb_checkpoints/
+
+# System files
+.DS_Store
+Thumbs.db
+
+
+
+# Logs
+*.log
+
+# Docker
+*.tar
+*.env
+
+#others
+.vscode/
+
+# ----------------------
+# Documents (BLOCK THESE)
+# ----------------------
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+*.index
