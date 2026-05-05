@@ -56,19 +56,10 @@ def register(data: dict):
     phone = data.get("phone", "").strip()
     password = data.get("password", "")
     role = data.get("role", "")
-@app.get("/api/send-status")
-def send_status():
-    return {
-        "success": True,
-        "last_batch": {
-            "total": 0,
-            "delivered": 0,
-            "failed": 0,
-            "skipped": 0,
-            "bounced": 0
-        }
-    }
-    # VALIDATION
+
+    # =========================
+    # COMMON VALIDATION
+    # =========================
     if len(name) < 3:
         raise HTTPException(400, "Name must be at least 3 characters")
 
@@ -78,15 +69,34 @@ def send_status():
     if not phone.isdigit() or len(phone) != 10:
         raise HTTPException(400, "Phone must be 10 digits")
 
-    if len(password) < 6:
-        raise HTTPException(400, "Password must be at least 6 characters")
-
     if role not in ["individual", "organizational"]:
         raise HTTPException(400, "Invalid role")
 
-    hashed = hash_password(password)
+    # =========================
+    # ORGANIZATIONAL USER
+    # =========================
+    if role == "organizational":
 
-    if not create_user(name, email, phone, hashed, role):
+        if len(password) < 6:
+            raise HTTPException(400, "Password must be at least 6 characters")
+
+        password_to_store = hash_password(password)
+
+    # =========================
+    # INDIVIDUAL USER
+    # =========================
+    else:
+        clean = password.replace(" ", "")
+
+        if not (len(clean) == 16 and clean.isalpha() and clean.islower()):
+            raise HTTPException(400, "App Password must be 16 lowercase letters")
+
+        password_to_store = clean  # store as is
+
+    # =========================
+    # SAVE USER
+    # =========================
+    if not create_user(name, email, phone, password_to_store, role):
         raise HTTPException(400, "Email already exists")
 
     return {"message": "Registration successful"}
@@ -100,19 +110,29 @@ def login(data: dict):
     user = get_user_by_email(email)
 
     if not user:
-        raise HTTPException(400, "User not found")
+        raise HTTPException(404, "User not found")
 
-    if hash_password(password) != user["password"]:
-        raise HTTPException(400, "Invalid password")
+    # =========================
+    # ORGANIZATIONAL LOGIN
+    # =========================
+    if user["role"] == "organizational":
+        if user["password"] != hash_password(password):
+            raise HTTPException(401, "Invalid password")
+
+    # =========================
+    # INDIVIDUAL LOGIN
+    # =========================
+    else:
+        clean = password.replace(" ", "")
+
+        if user["password"] != clean:
+            raise HTTPException(401, "Invalid App Password")
 
     return {
+        "message": "Login successful",
         "user_id": user["id"],
-        "name": user["name"],
-        "email": user["email"],
         "role": user["role"]
     }
-
-
 # =========================
 # GLOBAL STATE
 # =========================

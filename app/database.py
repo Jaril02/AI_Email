@@ -4,20 +4,29 @@ DB_NAME = "users.db"
 
 
 # =========================
+# DB CONNECTION (Reusable)
+# =========================
+def get_connection():
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row  # 🔥 important for dict-like access
+    return conn
+
+
+# =========================
 # INIT USERS TABLE
 # =========================
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            email TEXT UNIQUE,
-            phone TEXT,
-            password TEXT,
-            role TEXT
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            phone TEXT NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL
         )
     """)
 
@@ -30,7 +39,7 @@ def init_db():
 # =========================
 def create_user(name, email, phone, password, role):
     try:
-        conn = sqlite3.connect(DB_NAME)
+        conn = get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -39,17 +48,20 @@ def create_user(name, email, phone, password, role):
         """, (name, email, phone, password, role))
 
         conn.commit()
-        conn.close()
         return True
-    except:
-        return False
+
+    except sqlite3.IntegrityError:
+        return False  # email already exists
+
+    finally:
+        conn.close()
 
 
 # =========================
-# GET USER
+# GET USER BY EMAIL
 # =========================
 def get_user_by_email(email):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
@@ -57,14 +69,7 @@ def get_user_by_email(email):
     conn.close()
 
     if row:
-        return {
-            "id": row[0],
-            "name": row[1],
-            "email": row[2],
-            "phone": row[3],
-            "password": row[4],
-            "role": row[5],
-        }
+        return dict(row)  # 🔥 cleaner than manual mapping
     return None
 
 
@@ -72,17 +77,18 @@ def get_user_by_email(email):
 # CREATE SENDERS TABLE
 # =========================
 def create_senders_table():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS senders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            name TEXT,
-            organization_name TEXT,
-            email TEXT,
-            password TEXT
+            user_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            organization_name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            password TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
 
@@ -94,7 +100,7 @@ def create_senders_table():
 # ADD SENDER
 # =========================
 def add_sender(user_id, name, org_name, email, password):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -107,39 +113,35 @@ def add_sender(user_id, name, org_name, email, password):
 
 
 # =========================
-# GET SENDERS (ONLY EMAIL LIST)
+# GET SENDERS (LIST)
 # =========================
 def get_senders(user_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id, email FROM senders WHERE user_id = ?", (user_id,))
-    rows = cursor.fetchall()
+    cursor.execute("""
+        SELECT id, name, organization_name, email
+        FROM senders
+        WHERE user_id = ?
+    """, (user_id,))
 
+    rows = cursor.fetchall()
     conn.close()
 
-    return [{"id": r[0], "email": r[1]} for r in rows]
+    return [dict(row) for row in rows]  # 🔥 clean output
 
 
 # =========================
 # GET SINGLE SENDER
 # =========================
 def get_sender_by_id(sender_id):
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("SELECT * FROM senders WHERE id = ?", (sender_id,))
     row = cursor.fetchone()
-
     conn.close()
 
     if row:
-        return {
-            "id": row[0],
-            "user_id": row[1],
-            "name": row[2],
-            "organization_name": row[3],
-            "email": row[4],
-            "password": row[5],
-        }
+        return dict(row)
     return None

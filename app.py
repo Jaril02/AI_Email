@@ -3,7 +3,24 @@ from typing import Any
 import requests
 import streamlit as st
 import re
+import smtplib
 
+def is_valid_email_format(email):
+    return re.match(r"^[a-zA-Z0-9._%+-]+@gmail\.com$", email)
+
+def is_valid_app_password(password):
+    password = password.replace(" ", "")
+    return len(password) == 16 and password.isalnum()
+
+def check_smtp_login(email, password):
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(email, password.replace(" ", ""))
+        server.quit()
+        return True
+    except:
+        return False
 # =========================
 # CONFIG
 # =========================
@@ -61,7 +78,9 @@ def auth_ui():
 
     tab1, tab2 = st.tabs(["Login", "Register"])
 
-    # -------- LOGIN --------
+    # =========================
+    # LOGIN
+    # =========================
     with tab1:
         st.subheader("Login")
 
@@ -88,21 +107,32 @@ def auth_ui():
                 except Exception as e:
                     st.error(str(e))
 
-    # -------- REGISTER --------
+    # =========================
+    # REGISTER
+    # =========================
     with tab2:
         st.subheader("Create Account")
+
+        account_type = st.radio(
+            "Select Account Type",
+            ["Individual", "Organizational"],
+            horizontal=True
+        )
 
         name = st.text_input("Full Name")
         email = st.text_input("Email")
         phone = st.text_input("Phone")
-        password = st.text_input("Password", type="password")
 
-        role = st.selectbox(
-            "Account Type",
-            ["individual", "organizational"]
-        )
+        if account_type == "Organizational":
+            password = st.text_input("Password", type="password")
+
+        else:
+            app_password = st.text_input("App Password", type="password")
+            st.markdown("[🔗 Generate App Password](https://myaccount.google.com/apppasswords)")
+            st.info("App Password must be 16 lowercase letters")
 
         if st.button("Register"):
+
             if len(name.strip()) < 3:
                 st.error("Name must be at least 3 characters")
 
@@ -112,27 +142,39 @@ def auth_ui():
             elif not phone.isdigit() or len(phone) != 10:
                 st.error("Phone must be 10 digits")
 
-            elif len(password) < 6:
-                st.error("Password must be at least 6 characters")
+            elif account_type == "Organizational":
 
-            else:
-                try:
+                if len(password) < 6:
+                    st.error("Password must be at least 6 characters")
+
+                else:
                     res = post_json("/api/register", {
                         "name": name,
                         "email": email,
                         "phone": phone,
                         "password": password,
-                        "role": role
+                        "role": "organizational"
                     })
-
                     st.success(res["message"])
 
-                except Exception as e:
-                    st.error(str(e))
+            else:
+                clean = app_password.replace(" ", "")
+
+                if not (len(clean) == 16 and clean.isalpha() and clean.islower()):
+                    st.error("App Password must be 16 lowercase letters")
+
+                else:
+                    res = post_json("/api/register", {
+                        "name": name,
+                        "email": email,
+                        "phone": phone,
+                        "password": clean,
+                        "role": "individual"
+                    })
+                    st.success(res["message"])
 
 def organizational_dashboard():
-    def organizational_dashboard():
-        st.title("🏢 Organizational Panel")
+    st.title("🏢 Organizational Panel")
 
     # =========================
     # SIDEBAR
@@ -156,28 +198,24 @@ def organizational_dashboard():
         st.subheader("📧 Senders")
 
         for sender in senders:
-            if st.button(sender["email"], key=f"sender_{sender['id']}"):
+            if st.button(
+                f"{sender.get('name','')} | {sender.get('email','')}",
+                key=f"sender_{sender['id']}"
+            ):
                 requests.post(
                     f"{api_base_url()}/api/senders/select",
                     json={"sender_id": sender["id"]}
                 )
                 st.session_state.active_email = sender["email"]
-
-    # =========================
-    # ACTIVE SENDER
-    # =========================
-    if "active_email" in st.session_state:
-        st.success(f"Active Sender: {st.session_state.active_email}")
-    else:
-        st.warning("⚠️ Select a sender first")
+                st.rerun()
 
     st.divider()
 
     # =========================
-    # DASHBOARD PAGE
+    # 📊 DASHBOARD PAGE
     # =========================
     if page == "📊 Dashboard":
-    
+
         col1, col2 = st.columns([6, 1])
 
         with col1:
@@ -186,15 +224,6 @@ def organizational_dashboard():
         with col2:
             if st.button("➕ Add Email"):
                 st.session_state.show_form = True
-
-        st.divider()
-        if st.session_state.get("show_form"):
-            st.write("Form will appear here")  # replace with your form
-        # ===== ACTIVE SENDER =====
-        if "active_email" in st.session_state:
-            st.success(f"Active Sender: {st.session_state.active_email}")
-        else:
-            st.warning("No sender selected")
 
         st.divider()
 
@@ -218,24 +247,44 @@ def organizational_dashboard():
 
                 colA, colB = st.columns(2)
 
+                # ✅ SAVE BUTTON
                 with colA:
                     if st.button("Save Sender"):
-                        res = requests.post(
-                            f"{api_base_url()}/api/senders/add",
-                            json={
-                                "user_id": st.session_state.user_id,
-                                "name": name,
-                                "organization_name": org,
-                                "email": email,
-                                "password": password
-                            }
-                        )
 
-                        if res.status_code == 200:
-                            st.success("Sender Added")
-                            st.session_state.show_form = False
-                            st.rerun()
+                        clean_password = password.replace(" ", "")
 
+                        if len(name.strip()) < 3:
+                            st.error("Name must be at least 3 characters")
+
+                        elif len(org.strip()) < 2:
+                            st.error("Organization name required")
+
+                        elif not re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$", email):
+                            st.error("Invalid email format")
+
+                        elif not re.fullmatch(r"[a-z]{16}", clean_password):
+                            st.error("App Password must be exactly 16 lowercase letters")
+
+                        else:
+                            res = requests.post(
+                                f"{api_base_url()}/api/senders/add",
+                                json={
+                                    "user_id": st.session_state.user_id,
+                                    "name": name,
+                                    "organization_name": org,
+                                    "email": email,
+                                    "password": clean_password
+                                }
+                            )
+
+                            if res.status_code == 200:
+                                st.success("Sender Added")
+                                st.session_state.show_form = False
+                                st.rerun()
+                            else:
+                                st.error(res.text)
+
+                # ❌ CANCEL BUTTON
                 with colB:
                     if st.button("Cancel"):
                         st.session_state.show_form = False
@@ -243,7 +292,7 @@ def organizational_dashboard():
 
             st.divider()
 
-        # ===== SENDER LIST (RIGHT SIDE STYLE) =====
+        # ===== SENDER LIST =====
         st.subheader("📬 Sender List")
 
         if not senders:
@@ -251,11 +300,11 @@ def organizational_dashboard():
         else:
             for sender in senders:
                 with st.container():
-                    c1, c2 = st.columns([4,1])
+                    c1, c2 = st.columns([4, 1])
 
                     with c1:
                         st.markdown(f"""
-                        **📧 {sender['email']}**  
+                        **📧 {sender.get('email','')}**  
                         👤 {sender.get('name','-')}  
                         🏢 {sender.get('organization_name','-')}
                         """)
@@ -272,22 +321,20 @@ def organizational_dashboard():
                     st.divider()
 
     # =========================
-    # AI AGENT PAGE
+    # 🤖 AI AGENT PAGE (ONLY THIS WILL SHOW)
     # =========================
     elif page == "🤖 AI Agent":
-        
-    # ✅ MUST be inside this block
+
         if "active_email" not in st.session_state:
             st.error("⚠️ Please select sender first")
             st.stop()
 
+        st.success(f"Active Sender: {st.session_state.active_email}")
         st.subheader("🤖 AI Email Agent")
 
         left_col, right_col = st.columns(2)
 
-        # =========================
         # LEFT SIDE
-        # =========================
         with left_col:
             st.subheader("1) Upload Excel")
 
@@ -316,9 +363,7 @@ def organizational_dashboard():
                     )
                     st.success("Uploaded")
 
-        # =========================
-        # RIGHT SIDE
-        # =========================
+        # RIGHT SIDE (UNCHANGED)
         with right_col:
             st.subheader("3) Message")
 
@@ -357,9 +402,6 @@ def organizational_dashboard():
                 })
                 st.success(res["message"])
 
-            # =========================
-            # PREVIEW OUTPUT
-            # =========================
             st.subheader("Preview Output")
 
             if not st.session_state.preview:
@@ -585,4 +627,3 @@ else:
     for i, item in enumerate(st.session_state.preview, 1):
         st.markdown(f"**Recipient {i}**")
         st.code(item.get("message", ""))
-
